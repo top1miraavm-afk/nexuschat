@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusChat - Админ</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;height:100vh;display:flex;justify-content:center;align-items:center}
+        .screen{display:none;width:100%;height:100%}
+        .screen.active{display:flex;justify-content:center;align-items:center}
+        .auth-card{background:#fff;padding:40px;border-radius:20px;width:400px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+        .auth-card h1{margin-bottom:20px;color:#1e293b}
+        input{width:100%;padding:15px;margin:10px 0;border:2px solid #e2e8f0;border-radius:10px;font-size:16px;outline:0}
+        input:focus{border-color:#f59e0b}
+        .btn{width:100%;padding:15px;border:0;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;margin:10px 0}
+        .btn-primary{background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff}
+        .error{color:#ef4444;margin-top:10px;min-height:20px}
+        
+        .admin-layout{width:100%;height:100%;background:#fff;display:flex;flex-direction:column}
+        .admin-header{padding:20px;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;display:flex;justify-content:space-between;align-items:center}
+        .admin-content{display:flex;flex:1}
+        .users-panel{width:300px;background:#f1f5f9;overflow-y:auto;padding:10px}
+        .user-item{padding:15px;background:#fff;border-radius:10px;margin-bottom:5px;cursor:pointer}
+        .user-item:hover,.user-item.active{background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff}
+        .chats-panel{flex:1;padding:20px;overflow-y:auto}
+        .chat-block{background:#f8fafc;border-radius:10px;padding:15px;margin-bottom:15px}
+        .chat-block h4{color:#ef4444;margin-bottom:10px}
+        .msg-item{padding:10px;background:#fff;border-radius:8px;margin:5px 0;border-left:3px solid #f59e0b}
+        .stat{display:inline-block;background:rgba(255,255,255,.2);padding:10px 20px;border-radius:10px;margin:0 10px}
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Вход в админку -->
+        <div id="admin-login" class="screen active">
+            <div class="auth-card">
+                <h1>👑 Админ-панель</h1>
+                <input type="password" id="admin-pass" placeholder="Пароль администратора">
+                <button class="btn btn-primary" onclick="adminLogin()">Войти</button>
+                <div class="error" id="admin-error"></div>
+            </div>
+        </div>
+
+        <!-- Сама админка -->
+        <div id="admin-panel" class="screen">
+            <div class="admin-layout">
+                <div class="admin-header">
+                    <h2>👑 Админ-панель</h2>
+                    <div>
+                        <span class="stat">👥 <span id="stat-users">0</span></span>
+                        <span class="stat">💬 <span id="stat-msgs">0</span></span>
+                        <button onclick="adminLogout()" style="background:rgba(255,255,255,.2);color:#fff;border:0;padding:10px;border-radius:8px;cursor:pointer;margin-left:10px">Выйти</button>
+                    </div>
+                </div>
+                <div class="admin-content">
+                    <div class="users-panel" id="admin-users"></div>
+                    <div class="chats-panel" id="admin-chats">
+                        <p style="color:#94a3b8;text-align:center;padding:40px">Выберите пользователя</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ADMIN_PASS = '47lysejes1';
+        let selectedUser = null;
+
+        function adminLogin() {
+            const pass = document.getElementById('admin-pass').value;
+            if (pass === ADMIN_PASS) {
+                localStorage.setItem('admin_auth', 'true');
+                showScreen('admin-panel');
+                loadDashboard();
+            } else {
+                document.getElementById('admin-error').textContent = 'Неверный пароль';
+            }
+        }
+
+        function adminLogout() {
+            localStorage.removeItem('admin_auth');
+            showScreen('admin-login');
+            document.getElementById('admin-pass').value = '';
+        }
+
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        async function loadDashboard() {
+            try {
+                const [usersRes, msgsRes] = await Promise.all([
+                    fetch('/api/users'),
+                    fetch('/api/admin/messages')
+                ]);
+                const users = await usersRes.json();
+                const msgs = await msgsRes.json();
+
+                document.getElementById('stat-users').textContent = users.length;
+                document.getElementById('stat-msgs').textContent = msgs.length;
+
+                const usersDiv = document.getElementById('admin-users');
+                usersDiv.innerHTML = users.map(u => `
+                    <div class="user-item ${selectedUser===u.username?'active':''}" 
+                         onclick="selectUser('${u.username}')">
+                        👤 <strong>${u.username}</strong>
+                    </div>
+                `).join('');
+            } catch(e) {
+                console.error(e);
+            }
+        }
+
+        async function selectUser(username) {
+            selectedUser = username;
+            
+            // Подсветка
+            document.querySelectorAll('.user-item').forEach(el => {
+                el.classList.remove('active');
+                if (el.textContent.includes(username)) el.classList.add('active');
+            });
+
+            try {
+                const res = await fetch(`/api/admin/user-chats/${username}`);
+                const data = await res.json();
+                const chatsDiv = document.getElementById('admin-chats');
+                
+                if (!data.chats || Object.keys(data.chats).length === 0) {
+                    chatsDiv.innerHTML = '<p style="color:#94a3b8;text-align:center;padding:40px">Нет переписок</p>';
+                    return;
+                }
+
+                let html = `<h3>💬 Переписки: ${username}</h3>`;
+                for (const [partner, msgs] of Object.entries(data.chats)) {
+                    html += `<div class="chat-block">
+                        <h4>📱 Чат с ${partner} (${msgs.length} сообщений)</h4>`;
+                    msgs.forEach(m => {
+                        html += `<div class="msg-item">
+                            <strong>${m.from_user === username ? '📤' : '📥'} ${m.from_user}</strong>
+                            <div>${m.text}</div>
+                            <small style="color:#94a3b8">${m.time}</small>
+                        </div>`;
+                    });
+                    html += '</div>';
+                }
+                chatsDiv.innerHTML = html;
+            } catch(e) {
+                console.error(e);
+            }
+        }
+
+        // Автообновление
+        setInterval(() => {
+            if (document.getElementById('admin-panel').classList.contains('active')) {
+                loadDashboard();
+                if (selectedUser) selectUser(selectedUser);
+            }
+        }, 5000);
+
+        // Проверка сессии
+        if (localStorage.getItem('admin_auth') === 'true') {
+            showScreen('admin-panel');
+            loadDashboard();
+        }
+    </script>
+</body>
+</html>
